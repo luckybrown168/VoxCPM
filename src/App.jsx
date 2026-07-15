@@ -6,9 +6,8 @@ export default function App() {
     return localStorage.getItem('voxcpm_backend_url') || 'http://localhost:8000';
   });
   
-  // 新增：VoxCPM 2.0 新規格參數
-  const [generationType, setGenerationType] = useState('clone'); // clone (克隆自己) 或 design (文字設計音色)
-  const [promptText, setPromptText] = useState('溫柔且親切的年輕女性聲音，說話語速適中。'); // 用文字設計音色
+  const [generationType, setGenerationType] = useState('clone'); // clone (語音克隆) 或 standard (標準預設聲音)
+  const [promptText, setPromptText] = useState('這是一段測試的聲音樣本。'); // 參考音檔的逐字稿
   const [dialect, setDialect] = useState('mandarin'); // 方言
   const [language, setLanguage] = useState('zh'); // 語言
   
@@ -76,7 +75,6 @@ export default function App() {
     return () => clearInterval(timerRef.current);
   }, [isRecording]);
 
-  // 開始錄音
   const startRecording = async () => {
     setErrorMsg('');
     audioChunksRef.current = [];
@@ -125,12 +123,27 @@ export default function App() {
   // 呼叫 FastAPI 後端 API 生成語音
   const generateVoice = async () => {
     if (!text.trim()) {
-      setErrorMsg('請輸入想要合成的文字內容！');
+      setErrorMsg('請輸入想要合成的台詞內容！');
       return;
     }
-    if (generationType === 'clone' && !refAudioFile) {
-      setErrorMsg('請先錄製或上傳一段您的聲音樣本！');
-      return;
+
+    const formData = new FormData();
+    formData.append('text', text);
+    formData.append('dialect', dialect);
+    formData.append('language', language);
+
+    // 只有在克隆模式下才需要音檔與逐字稿
+    if (generationType === 'clone') {
+      if (!refAudioFile) {
+        setErrorMsg('請先錄製或上傳一段您的聲音樣本！');
+        return;
+      }
+      if (!promptText.trim()) {
+        setErrorMsg('請輸入參考音檔的「逐字稿」！這對 VoxCPM 的克隆品質非常重要。');
+        return;
+      }
+      formData.append('ref_audio', refAudioFile);
+      formData.append('prompt_text', promptText);
     }
 
     setLoading(true);
@@ -138,19 +151,8 @@ export default function App() {
     setErrorMsg('');
     setAudioResult(null);
 
-    const formData = new FormData();
-    formData.append('text', text);
-    formData.append('dialect', dialect);
-    formData.append('language', language);
-
-    if (generationType === 'clone') {
-      formData.append('ref_audio', refAudioFile);
-    } else {
-      formData.append('prompt_text', promptText);
-    }
-
     try {
-      setStatusMsg('VoxCPM 正在進行跨語言與方言推理中（可能需要數秒）...');
+      setStatusMsg('VoxCPM 正在進行推理中（可能需要數秒）...');
       const response = await fetch(`${backendUrl}/api/tts`, {
         method: 'POST',
         body: formData,
@@ -167,7 +169,7 @@ export default function App() {
       setStatusMsg('語音合成成功！');
     } catch (err) {
       console.error(err);
-      setErrorMsg(`生成失敗！請確認後端模型是否已下載完成並就緒。 (${err.message})`);
+      setErrorMsg(`生成失敗: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -183,10 +185,10 @@ export default function App() {
             VoxCPM 2.0 Engine 🚀
           </span>
           <h1 className="mt-3 text-3xl font-extrabold tracking-tight sm:text-5xl bg-gradient-to-r from-teal-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
-            VoxCPM 2.0 百變語音複刻
+            VoxCPM 2.0 語音複刻
           </h1>
           <p className="mt-2 text-sm text-slate-400">
-            支援 30 國語言、9 大方言克隆，具備情境感知與文字音色自設計的影視級 TTS。
+            支援 30 國語言、9 大方言，完美複刻您的聲音與語氣。
           </p>
         </div>
 
@@ -206,13 +208,13 @@ export default function App() {
             <span className="text-xs text-slate-400 block font-semibold uppercase tracking-wider">當前服務狀態</span>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-700/30">
-                <span className="text-slate-500">連線狀態: </span>
+                <span className="text-slate-500">連線: </span>
                 <span className={backendStatus.connected ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
                   {backendStatus.connected ? "● 線上" : "○ 離線"}
                 </span>
               </div>
               <div className="bg-slate-900/60 p-2 rounded-lg border border-slate-700/30">
-                <span className="text-slate-500">模型下載狀態: </span>
+                <span className="text-slate-500">模型: </span>
                 <span className="text-teal-400 font-bold block truncate">
                   {backendStatus.modelStatus}
                 </span>
@@ -235,8 +237,8 @@ export default function App() {
                 onChange={(e) => setGenerationType(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-sm"
               >
-                <option value="clone">🎙️ 零樣本聲音複製 (上傳人聲)</option>
-                <option value="design">✍️ 聲優音色設計 (文字描述)</option>
+                <option value="clone">🎙️ 零樣本聲音複製 (克隆音色)</option>
+                <option value="standard">🤖 標準 TTS (無需上傳音檔)</option>
               </select>
             </div>
 
@@ -258,7 +260,7 @@ export default function App() {
             </div>
 
             <div>
-              <label className="text-xs text-slate-400 block mb-1 font-semibold">目標輸出語言 (支援 30 國)</label>
+              <label className="text-xs text-slate-400 block mb-1 font-semibold">輸出語言 (30國)</label>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
@@ -281,68 +283,67 @@ export default function App() {
           {/* 左側：音色來源輸入 */}
           <div className="bg-slate-800/80 rounded-2xl p-6 border border-slate-700/50 shadow-xl flex flex-col justify-between">
             {generationType === 'clone' ? (
-              <div>
-                <div className="flex items-center space-x-2 mb-4">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-500/10 text-teal-400 text-xs font-bold">1</span>
-                  <h2 className="text-xl font-bold">錄製或上傳聲音樣本</h2>
-                </div>
-                <p className="text-sm text-slate-400 mb-6">
-                  請提供 5 至 15 秒清晰的個人說話錄音，系統將提取您的音色進行方言或多國語言合成。
-                </p>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-teal-500/10 text-teal-400 text-xs font-bold">1</span>
+                    <h2 className="text-xl font-bold">聲音樣本與逐字稿</h2>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-4">
+                    為確保品質，請提供一段清晰的聲音，並**務必輸入這段聲音裡說出的文字 (逐字稿)**。
+                  </p>
 
-                <div className="space-y-4">
-                  <div className="flex flex-col items-center justify-center p-6 bg-slate-900/60 rounded-xl border border-dashed border-slate-700">
+                  <div className="flex flex-col items-center justify-center p-4 bg-slate-900/60 rounded-xl border border-dashed border-slate-700">
                     {isRecording ? (
                       <div className="flex flex-col items-center space-y-3">
                         <div className="relative">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                           <div className="h-12 w-12 bg-red-500 rounded-full flex items-center justify-center text-white">🎤</div>
                         </div>
-                        <span className="text-red-400 font-semibold text-lg">錄音中... {recordingSeconds} 秒</span>
-                        <button onClick={stopRecording} className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-full text-xs transition">
-                          停止並保存
-                        </button>
+                        <span className="text-red-400 font-semibold text-lg">{recordingSeconds} 秒</span>
+                        <button onClick={stopRecording} className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-full text-xs transition">停止並保存</button>
                       </div>
                     ) : (
                       <button onClick={startRecording} disabled={loading} className="flex flex-col items-center space-y-2 group focus:outline-none">
-                        <div className="h-12 w-12 bg-slate-800 group-hover:bg-indigo-600 rounded-full flex items-center justify-center text-xl border border-slate-700 transition">🎙️</div>
+                        <div className="h-10 w-10 bg-slate-800 group-hover:bg-indigo-600 rounded-full flex items-center justify-center text-xl border border-slate-700 transition">🎙️</div>
                         <span className="text-sm text-slate-300 font-medium group-hover:text-indigo-400 transition">點擊此處開始錄音</span>
                       </button>
                     )}
                   </div>
 
-                  <div className="flex items-center justify-between text-xs pt-2">
-                    <span className="text-slate-400">或者上傳本地音檔 (.wav/.mp3)：</span>
+                  <div className="flex items-center justify-between text-xs mt-2">
+                    <span className="text-slate-400">或上傳本地音檔：</span>
                     <label className="cursor-pointer bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg transition">
                       選擇檔案
                       <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" disabled={loading} />
                     </label>
                   </div>
+                  
+                  {refAudioUrl && (
+                    <div className="mt-3">
+                      <audio src={refAudioUrl} controls className="w-full h-8 accent-teal-500" />
+                    </div>
+                  )}
                 </div>
 
-                {refAudioUrl && (
-                  <div className="mt-6 pt-4 border-t border-slate-700/50">
-                    <span className="text-xs text-slate-500 block mb-2">已就緒聲音樣本：</span>
-                    <audio src={refAudioUrl} controls className="w-full h-8 accent-teal-500" />
-                  </div>
-                )}
+                <div className="border-t border-slate-700/50 pt-4">
+                  <label className="text-sm font-semibold text-slate-300 block mb-2">聲音樣本的逐字稿 <span className="text-red-400">*</span></label>
+                  <textarea
+                    value={promptText}
+                    onChange={(e) => setPromptText(e.target.value)}
+                    disabled={loading}
+                    className="w-full h-20 bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                    placeholder="請輸入聲音樣本所說出的確切文字內容..."
+                  />
+                </div>
               </div>
             ) : (
-              <div>
-                <div className="flex items-center space-x-2 mb-4">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-purple-500/10 text-purple-400 text-xs font-bold">1</span>
-                  <h2 className="text-xl font-bold">設計聲音描述 (Prompt)</h2>
-                </div>
-                <p className="text-sm text-slate-400 mb-4">
-                  用自然語言描述您想要生成的「百變聲優」音色。VoxCPM 2.0 會根據您的文字無中生有設計全新聲音！
+              <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
+                <div className="h-16 w-16 bg-slate-800 rounded-full flex items-center justify-center text-3xl border border-slate-700">🤖</div>
+                <h3 className="text-lg font-bold text-slate-200">標準模式</h3>
+                <p className="text-sm text-slate-400">
+                  在此模式下不需上傳您的聲音。系統將使用 VoxCPM 內建的高品質預設聲線為您朗讀台詞。
                 </p>
-                <textarea
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value)}
-                  disabled={loading}
-                  className="w-full h-40 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
-                  placeholder="例如：帶有滄桑感的成熟男性聲音，帶有低沉優雅的磁性，適合播報旁白。"
-                />
               </div>
             )}
           </div>
@@ -354,15 +355,11 @@ export default function App() {
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-bold">2</span>
                 <h2 className="text-xl font-bold">要合成的台詞內容</h2>
               </div>
-              <p className="text-sm text-slate-400 mb-4">
-                輸入想讓克隆聲音說出的內容：
-              </p>
-
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 disabled={loading}
-                className="w-full h-40 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                className="w-full h-48 bg-slate-950 border border-slate-700 rounded-xl p-4 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
                 placeholder="輸入要轉換為語音的文字內容..."
               />
             </div>
